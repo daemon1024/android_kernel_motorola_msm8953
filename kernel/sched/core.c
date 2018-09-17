@@ -96,6 +96,38 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/sched.h>
 
+static atomic_t __su_instances;
+
+int su_instances(void)
+{
+	return atomic_read(&__su_instances);
+}
+
+bool su_running(void)
+{
+	return su_instances() > 0;
+}
+
+bool su_visible(void)
+{
+	kuid_t uid = current_uid();
+	if (su_running())
+		return true;
+	if (uid_eq(uid, GLOBAL_ROOT_UID) || uid_eq(uid, GLOBAL_SYSTEM_UID))
+		return true;
+	return false;
+}
+
+void su_exec(void)
+{
+	atomic_inc(&__su_instances);
+}
+
+void su_exit(void)
+{
+	atomic_dec(&__su_instances);
+}
+
 const char *task_event_names[] = {"PUT_PREV_TASK", "PICK_NEXT_TASK",
 				  "TASK_WAKE", "TASK_MIGRATE", "TASK_UPDATE",
 				"IRQ_UPDATE"};
@@ -1049,7 +1081,7 @@ static void update_rq_clock_task(struct rq *rq, s64 delta)
 	rq->clock_task += delta;
 
 #if defined(CONFIG_IRQ_TIME_ACCOUNTING) || defined(CONFIG_PARAVIRT_TIME_ACCOUNTING)
-	if ((irq_delta + steal) && sched_feat(NONTASK_CAPACITY))
+	if (sched_feat(NONTASK_CAPACITY) && (irq_delta + steal) != 0)
 		sched_rt_avg_update(rq, irq_delta + steal);
 #endif
 }
@@ -1980,7 +2012,7 @@ static int send_notification(struct rq *rq, int check_pred, int check_groups)
 	unsigned int cur_freq, freq_required;
 	unsigned long flags;
 	int rc = 0;
-	u64 group_load = 0, new_load;
+	u64 group_load = 0, new_load = 0;
 
 	if (!sched_enable_hmp)
 		return 0;
@@ -3762,12 +3794,12 @@ static void transfer_busy_time(struct rq *rq, struct related_thread_group *grp,
 {
 	u64 wallclock;
 	struct group_cpu_time *cpu_time;
-	u64 *src_curr_runnable_sum, *dst_curr_runnable_sum;
-	u64 *src_prev_runnable_sum, *dst_prev_runnable_sum;
-	u64 *src_nt_curr_runnable_sum, *dst_nt_curr_runnable_sum;
-	u64 *src_nt_prev_runnable_sum, *dst_nt_prev_runnable_sum;
+	u64 *src_curr_runnable_sum = 0, *dst_curr_runnable_sum = 0;
+	u64 *src_prev_runnable_sum = 0, *dst_prev_runnable_sum = 0;
+	u64 *src_nt_curr_runnable_sum = 0, *dst_nt_curr_runnable_sum = 0;
+	u64 *src_nt_prev_runnable_sum = 0, *dst_nt_prev_runnable_sum = 0;
 	struct migration_sum_data d;
-	int migrate_type;
+	int migrate_type = 0;
 
 	if (!sched_freq_aggregate)
 		return;
@@ -5337,6 +5369,10 @@ int sched_fork(unsigned long clone_flags, struct task_struct *p)
 {
 	unsigned long flags;
 	int cpu = get_cpu();
+
+#ifdef CONFIG_CPU_FREQ_STAT
+	cpufreq_task_stats_init(p);
+#endif
 
 	__sched_fork(clone_flags, p);
 	/*

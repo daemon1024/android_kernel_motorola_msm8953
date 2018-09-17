@@ -2044,6 +2044,7 @@ static struct glink_core_xprt_ctx *find_open_transport(const char *edge,
 	bool first = true;
 
 	ret = (struct glink_core_xprt_ctx *)ERR_PTR(-ENODEV);
+	best_xprt = (struct glink_core_xprt_ctx *)ERR_PTR(-ENODEV);
 	*best_id = USHRT_MAX;
 
 	mutex_lock(&transport_list_lock_lha0);
@@ -4187,7 +4188,7 @@ static void glink_core_move_ch_node(struct glink_core_xprt_ctx *xprt_ptr,
  */
 static void glink_core_channel_cleanup(struct glink_core_xprt_ctx *xprt_ptr)
 {
-	unsigned long flags, d_flags;
+	unsigned long flags = 0, d_flags = 0;
 	struct channel_ctx *ctx;
 	struct channel_lcid *temp_lcid, *temp_lcid1;
 	struct glink_core_xprt_ctx *dummy_xprt_ctx;
@@ -4201,7 +4202,13 @@ static void glink_core_channel_cleanup(struct glink_core_xprt_ctx *xprt_ptr)
 	rwref_read_get(&xprt_ptr->xprt_state_lhb0);
 	ctx = get_first_ch_ctx(xprt_ptr);
 	while (ctx) {
-		rwref_write_get_atomic(&ctx->ch_state_lhb2, true);
+		spin_unlock_irqrestore(&xprt_ptr->xprt_ctx_lock_lhb1, flags);
+		spin_unlock_irqrestore(&dummy_xprt_ctx->xprt_ctx_lock_lhb1,
+								d_flags);
+		rwref_write_get(&ctx->ch_state_lhb2);
+		spin_lock_irqsave(&dummy_xprt_ctx->xprt_ctx_lock_lhb1, d_flags);
+		spin_lock_irqsave(&xprt_ptr->xprt_ctx_lock_lhb1, flags);
+
 		if (ctx->local_open_state == GLINK_CHANNEL_OPENED ||
 			ctx->local_open_state == GLINK_CHANNEL_OPENING) {
 			ctx->transport_ptr = dummy_xprt_ctx;
@@ -5520,7 +5527,7 @@ static void tx_func(struct kthread_work *work)
 {
 	struct channel_ctx *ch_ptr;
 	uint32_t prio;
-	uint32_t tx_ready_head_prio;
+	uint32_t tx_ready_head_prio = 0;
 	int ret;
 	struct channel_ctx *tx_ready_head = NULL;
 	bool transmitted_successfully = true;

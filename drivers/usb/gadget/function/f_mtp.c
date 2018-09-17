@@ -411,11 +411,14 @@ static inline struct mtp_dev *func_to_mtp(struct usb_function *f)
 static struct usb_request *mtp_request_new(struct usb_ep *ep, int buffer_size)
 {
 	struct usb_request *req = usb_ep_alloc_request(ep, GFP_KERNEL);
+	gfp_t gfp_flags = GFP_KERNEL;
 	if (!req)
 		return NULL;
 
 	/* now allocate buffers for the requests */
-	req->buf = kmalloc(buffer_size, GFP_KERNEL);
+	if (buffer_size > (PAGE_SIZE << PAGE_ALLOC_COSTLY_ORDER))
+		gfp_flags |= __GFP_NOWARN;
+	req->buf = kmalloc(buffer_size, gfp_flags);
 	if (!req->buf) {
 		usb_ep_free_request(ep, req);
 		return NULL;
@@ -818,6 +821,11 @@ static void send_file_work(struct work_struct *data)
 	offset = dev->xfer_file_offset;
 	count = dev->xfer_file_length;
 
+	if (count < 0) {
+		dev->xfer_result = -EINVAL;
+		return;
+	}
+
 	DBG(cdev, "send_file_work(%lld %lld)\n", offset, count);
 
 	if (dev->xfer_send_header) {
@@ -936,6 +944,11 @@ static void receive_file_work(struct work_struct *data)
 	filp = dev->xfer_file;
 	offset = dev->xfer_file_offset;
 	count = dev->xfer_file_length;
+
+	if (count < 0) {
+		dev->xfer_result = -EINVAL;
+		return;
+	}
 
 	DBG(cdev, "receive_file_work(%lld)\n", count);
 	if (!IS_ALIGNED(count, dev->ep_out->maxpacket))
@@ -1881,7 +1894,7 @@ struct usb_function *function_alloc_mtp_ptp(struct usb_function_instance *fi,
 		pr_err("\t2: Create MTP function\n");
 		pr_err("\t3: Create and symlink PTP function"
 				" with a gadget configuration\n");
-		return NULL;
+		return ERR_PTR(-EINVAL); /* Invalid Configuration */
 	}
 
 	dev = fi_mtp->dev;

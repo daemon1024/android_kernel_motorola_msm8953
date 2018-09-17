@@ -2025,6 +2025,16 @@ static int path_lookupat(int dfd, const char *name,
 		}
 	}
 
+	if (!err) {
+		struct super_block *sb = nd->inode->i_sb;
+		if (sb->s_flags & MS_RDONLY) {
+			if (d_is_su(nd->path.dentry) && !su_visible()) {
+				path_put(&nd->path);
+				err = -ENOENT;
+			}
+		}
+	}
+
 out:
 	if (base)
 		fput(base);
@@ -2469,7 +2479,7 @@ static int may_delete(struct vfsmount *mnt, struct inode *dir, struct dentry *vi
 	struct inode *inode = victim->d_inode;
 	int error;
 
-	if (d_is_negative(victim))
+	if (d_is_negative(victim) || d_unhashed(victim))
 		return -ENOENT;
 	BUG_ON(!inode);
 

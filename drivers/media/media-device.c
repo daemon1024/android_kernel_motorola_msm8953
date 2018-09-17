@@ -49,6 +49,11 @@ static int media_device_get_info(struct media_device *dev,
 {
 	struct media_device_info info;
 
+	if (!(dev->dev && dev->dev->driver)) {
+		WARN(1, "null handle to media device\n");
+		return -EFAULT;
+	}
+
 	memset(&info, 0, sizeof(info));
 
 	strlcpy(info.driver, dev->dev->driver->name, sizeof(info.driver));
@@ -138,7 +143,7 @@ static long __media_device_enum_links(struct media_device *mdev,
 		unsigned int p;
 
 		for (p = 0; p < entity->num_pads; p++) {
-			struct media_pad_desc pad;
+			struct media_pad_desc pad = {0};
 
 			memset(&pad, 0, sizeof(pad));
 			media_device_kpad_to_upad(&entity->pads[p], &pad);

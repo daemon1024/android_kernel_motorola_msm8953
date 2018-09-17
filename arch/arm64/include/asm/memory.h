@@ -25,6 +25,7 @@
 #include <linux/const.h>
 #include <linux/types.h>
 #include <asm/sizes.h>
+#include <asm/bug.h>
 
 /*
  * Allow for constants defined here to be used from assembly code
@@ -43,10 +44,13 @@
  * and PAGE_OFFSET - it must be within 128MB of the kernel text.
  */
 #define VA_BITS			(CONFIG_ARM64_VA_BITS)
-#define VA_START		(UL(0xffffffffffffffff) << VA_BITS)
-#define PAGE_OFFSET		(UL(0xffffffffffffffff) << (VA_BITS - 1))
+#define VA_START		(UL(0xffffffffffffffff) - \
+	(UL(1) << VA_BITS) + 1)
+#define PAGE_OFFSET		(UL(0xffffffffffffffff) - \
+	(UL(1) << (VA_BITS - 1)) + 1)
 #define MODULES_END		(PAGE_OFFSET)
 #define MODULES_VADDR		(MODULES_END - SZ_64M)
+#define EARLYCON_IOBASE		(MODULES_VADDR - SZ_4M)
 #define FIXADDR_TOP		(MODULES_VADDR - SZ_2M - PAGE_SIZE)
 #define TASK_SIZE_64		(UL(1) << VA_BITS)
 
@@ -61,10 +65,6 @@
 #endif /* CONFIG_COMPAT */
 
 #define TASK_UNMAPPED_BASE	(PAGE_ALIGN(TASK_SIZE / 4))
-
-#if TASK_SIZE_64 > MODULES_VADDR
-#error Top of 64-bit user space clashes with start of module space
-#endif
 
 /*
  * Physical vs virtual RAM address space conversion.  These are
@@ -111,6 +111,11 @@ extern phys_addr_t		memstart_addr;
  */
 #define PHYS_PFN_OFFSET	(PHYS_OFFSET >> PAGE_SHIFT)
 
+extern void *high_memory;
+
+#define virt_is_valid_lowmem(kaddr)	\
+	((unsigned long)(kaddr) >= PAGE_OFFSET && \
+	(unsigned long)(kaddr) < (unsigned long)high_memory)
 /*
  * Note: Drivers should NOT use these.  They are the wrong
  * translation for translating DMA addresses.  Use the driver
@@ -118,6 +123,7 @@ extern phys_addr_t		memstart_addr;
  */
 static inline phys_addr_t virt_to_phys(const volatile void *x)
 {
+	BUG_ON(!virt_is_valid_lowmem(x));
 	return __virt_to_phys((unsigned long)(x));
 }
 

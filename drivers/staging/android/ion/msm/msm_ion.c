@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -717,7 +717,7 @@ long msm_ion_custom_ioctl(struct ion_client *client,
 			data.flush_data.offset;
 		end = start + data.flush_data.length;
 
-		if (check_vaddr_bounds(start, end)) {
+		if (start && check_vaddr_bounds(start, end)) {
 			pr_err("%s: virtual address %pK is out of bounds\n",
 				__func__, data.flush_data.vaddr);
 			ret = -EINVAL;
@@ -802,6 +802,11 @@ int msm_ion_heap_pages_zero(struct page **pages, int num_pages)
 			>> PAGE_SHIFT;
 	for (i = 0; i < num_pages; i += npages_to_vmap) {
 		npages_to_vmap = min(npages_to_vmap, num_pages - i);
+
+		if (!vmap_zero(&pages[i], npages_to_vmap, VM_IOREMAP,
+			PAGE_KERNEL, NULL))
+			continue;
+
 		for (j = 0; j < MAX_VMAP_RETRIES && npages_to_vmap;
 			++j) {
 			ptr = vmap(&pages[i], npages_to_vmap,

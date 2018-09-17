@@ -28,6 +28,8 @@
 
 #define to_mmc_driver(d)	container_of(d, struct mmc_driver, drv)
 
+#define CARD_ADD_REMOVE_DELAY	2000
+
 static ssize_t type_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
@@ -192,7 +194,7 @@ static int mmc_bus_resume(struct device *dev)
 	struct mmc_driver *drv = to_mmc_driver(dev->driver);
 	struct mmc_card *card = mmc_dev_to_card(dev);
 	struct mmc_host *host = card->host;
-	int ret;
+	int ret = 0;
 
 	if (mmc_bus_manual_resume(host)) {
 		host->bus_resume_flags |= MMC_BUSRESUME_NEEDS_RESUME;
@@ -404,6 +406,8 @@ int mmc_add_card(struct mmc_card *card)
 
 	card->dev.of_node = mmc_of_find_child_device(card->host, 0);
 
+	/* wait for user space to consume the event */
+	__pm_wakeup_event(&card->host->pm_ws, CARD_ADD_REMOVE_DELAY);
 	ret = device_add(&card->dev);
 	if (ret)
 		return ret;
@@ -432,6 +436,8 @@ void mmc_remove_card(struct mmc_card *card)
 			pr_info("%s: card %04x removed\n",
 				mmc_hostname(card->host), card->rca);
 		}
+		/* wait for user space to consume the event */
+		__pm_wakeup_event(&card->host->pm_ws, CARD_ADD_REMOVE_DELAY);
 		device_del(&card->dev);
 		of_node_put(card->dev.of_node);
 	}
@@ -441,4 +447,3 @@ void mmc_remove_card(struct mmc_card *card)
 
 	put_device(&card->dev);
 }
-

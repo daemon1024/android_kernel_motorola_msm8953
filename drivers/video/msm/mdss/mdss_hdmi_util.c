@@ -734,7 +734,7 @@ static int hdmi_ddc_read_retry(struct hdmi_tx_ddc_ctrl *ddc_ctrl)
 	u32 reg_val, ndx, time_out_count, wait_time;
 	struct hdmi_tx_ddc_data *ddc_data;
 	int status;
-	int busy_wait_us;
+	int busy_wait_us = 0;
 
 	if (!ddc_ctrl || !ddc_ctrl->io) {
 		pr_err("invalid input\n");
@@ -1212,7 +1212,7 @@ int hdmi_ddc_write(struct hdmi_tx_ddc_ctrl *ddc_ctrl)
 	u32 time_out_count;
 	struct hdmi_tx_ddc_data *ddc_data;
 	u32 wait_time;
-	int busy_wait_us;
+	int busy_wait_us = 0;
 
 	if (!ddc_ctrl || !ddc_ctrl->io) {
 		pr_err("invalid input\n");
@@ -1686,5 +1686,64 @@ int hdmi_hdcp2p2_ddc_read_rxstatus(struct hdmi_tx_ddc_ctrl *ctrl)
 		hdmi_hdcp2p2_ddc_disable(ctrl);
 	}
 
+	return rc;
+}
+
+static struct switch_dev hdmi_sdev;
+static struct switch_dev hdmi_audio_sdev;
+
+void hdmi_utils_deinit_switch_dev(void)
+{
+	if (hdmi_sdev.name) {
+		switch_dev_unregister(&hdmi_sdev);
+		memset(&hdmi_sdev, 0, sizeof(struct switch_dev));
+	}
+}
+
+int hdmi_utils_init_switch_dev(struct switch_dev **sdev)
+{
+	int rc = 0;
+
+	if (!hdmi_sdev.name) {
+		hdmi_sdev.name = "hdmi";
+		rc = switch_dev_register(&hdmi_sdev);
+		if (rc) {
+			DEV_ERR("%s: display switch registration failed\n",
+				__func__);
+			hdmi_sdev.name = NULL;
+			goto end;
+		}
+	}
+
+	*sdev = &hdmi_sdev;
+end:
+	return rc;
+}
+
+void hdmi_utils_deinit_audio_switch_dev(void)
+{
+	if (hdmi_audio_sdev.name) {
+		switch_dev_unregister(&hdmi_audio_sdev);
+		memset(&hdmi_audio_sdev, 0, sizeof(struct switch_dev));
+	}
+}
+
+int hdmi_utils_init_audio_switch_dev(struct switch_dev **audio_sdev)
+{
+	int rc = 0;
+
+	if (!hdmi_audio_sdev.name) {
+		hdmi_audio_sdev.name = "hdmi_audio";
+		rc = switch_dev_register(&hdmi_audio_sdev);
+		if (rc) {
+			DEV_ERR("%s: audio switch registration failed\n",
+				__func__);
+			hdmi_audio_sdev.name = NULL;
+			goto end;
+		}
+	}
+
+	*audio_sdev = &hdmi_audio_sdev;
+end:
 	return rc;
 }

@@ -74,7 +74,7 @@
 #define FLASH_TMR_SAFETY					0x00
 #define FLASH_SAFETY_TIMER_MASK					0x7F
 #define FLASH_MODULE_ENABLE_MASK				0xE0
-#define FLASH_STROBE_MASK					0xC0
+#define FLASH_STROBE_MASK					0xC7
 #define FLASH_CURRENT_RAMP_MASK					0xBF
 #define FLASH_VPH_PWR_DROOP_MASK				0xF3
 #define FLASH_LED_HDRM_SNS_ENABLE_MASK				0x81
@@ -102,6 +102,8 @@
 #define	FLASH_LED_FLASH_HW_VREG_OK				0x40
 #define	FLASH_LED_FLASH_SW_VREG_OK				0x80
 #define FLASH_LED_STROBE_TYPE_HW				0x04
+#define FLASH_LED_HW_STROBE_TRIG_EDGE				0x02
+#define FLASH_LED_HW_STROBE_ACT_HIGH				0x01
 #define	FLASH_DURATION_DIVIDER					10
 #define	FLASH_LED_HEADROOM_DIVIDER				100
 #define	FLASH_LED_HEADROOM_OFFSET				2
@@ -192,6 +194,10 @@ struct flash_node_data {
 	u8				num_regulators;
 	bool				regulators_on;
 	bool				flash_on;
+	bool				strobe_en;
+	bool				strobe_torch_en;
+	bool				strobe_trig_edge;
+	bool				strobe_act_high;
 };
 
 /*
@@ -267,6 +273,17 @@ static u8 qpnp_flash_led_ctrl_dbg_regs[] = {
 	0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48,
 	0x4A, 0x4B, 0x4C, 0x4F, 0x51, 0x52, 0x54, 0x55, 0x5A, 0x5C, 0x5D,
 };
+
+/* Export function to override strobe control from another driver */
+/* Setting this flag to 0 will override DT strobe control */
+static bool sensor_strobe = 1;
+
+void flash_led_strobe_en(int flag)
+{
+	pr_debug("%s flag %d strobe control %d", __func__, flag, sensor_strobe);
+	sensor_strobe = flag;
+}
+EXPORT_SYMBOL(flash_led_strobe_en);
 
 static int flash_led_dbgfs_file_open(struct qpnp_flash_led *led,
 					struct file *file)
@@ -1069,8 +1086,7 @@ static int qpnp_flash_led_module_disable(struct qpnp_flash_led *led,
 							&psy_prop);
 			if (rc) {
 				dev_err(&led->spmi_dev->dev,
-				"Failed to setup OTG pulse skip enable\n");
-				return -EINVAL;
+				"Failed to disable OTG pulse skip\n");
 			}
 		}
 	}
@@ -1245,7 +1261,7 @@ int qpnp_flash_led_prepare(struct led_trigger *trig, int options,
 	struct led_classdev *led_cdev = trigger_to_lcdev(trig);
 	struct flash_node_data *flash_node;
 	struct qpnp_flash_led *led;
-	int rc;
+	int rc = 0;
 
 	if (!led_cdev) {
 		pr_err("Invalid led_trigger provided\n");
@@ -1537,6 +1553,18 @@ static void qpnp_flash_led_work(struct work_struct *work)
 			}
 		}
 
+		if (flash_node->strobe_torch_en) {
+			flash_node->trigger |= FLASH_LED_STROBE_TYPE_HW;
+			if (flash_node->strobe_trig_edge)
+				flash_node->trigger |= FLASH_LED_HW_STROBE_TRIG_EDGE;
+			if (flash_node->strobe_act_high)
+				flash_node->trigger |= FLASH_LED_HW_STROBE_ACT_HIGH;
+		} else {
+			flash_node->trigger &= ~(FLASH_LED_STROBE_TYPE_HW
+				| FLASH_LED_HW_STROBE_ACT_HIGH
+				| FLASH_LED_HW_STROBE_TRIG_EDGE);
+		}
+
 		rc = qpnp_led_masked_write(led->spmi_dev,
 			FLASH_LED_STROBE_CTRL(led->base),
 			(flash_node->id == FLASH_LED_SWITCH ? FLASH_STROBE_MASK
@@ -1562,8 +1590,7 @@ static void qpnp_flash_led_work(struct work_struct *work)
 						&psy_prop);
 			if (rc) {
 				dev_err(&led->spmi_dev->dev,
-					"Failed to setup OTG pulse skip enable\n");
-				goto exit_flash_led_work;
+					"Failed to enable OTG pulse skip\n");
 			}
 		} else {
 			dev_err(&led->spmi_dev->dev,
@@ -1769,6 +1796,18 @@ static void qpnp_flash_led_work(struct work_struct *work)
 			}
 		}
 
+		if (flash_node->strobe_en && sensor_strobe) {
+			flash_node->trigger |= FLASH_LED_STROBE_TYPE_HW;
+			if (flash_node->strobe_trig_edge)
+				flash_node->trigger |= FLASH_LED_HW_STROBE_TRIG_EDGE;
+			if (flash_node->strobe_act_high)
+				flash_node->trigger |= FLASH_LED_HW_STROBE_ACT_HIGH;
+		} else {
+			flash_node->trigger &= ~(FLASH_LED_STROBE_TYPE_HW
+				| FLASH_LED_HW_STROBE_ACT_HIGH
+				| FLASH_LED_HW_STROBE_TRIG_EDGE);
+		}
+
 		rc = qpnp_led_masked_write(led->spmi_dev,
 			FLASH_LED_STROBE_CTRL(led->base),
 			(flash_node->id == FLASH_LED_SWITCH ? FLASH_STROBE_MASK
@@ -1900,6 +1939,9 @@ static void qpnp_flash_led_brightness_set(struct led_classdev *led_cdev,
 		pr_err("Invalid brightness value\n");
 		return;
 	}
+
+	dev_dbg(&flash_node->spmi_dev->dev, "set %s to %dmA\n",
+		led_cdev->name, value);
 
 	if (value > flash_node->cdev.max_brightness)
 		value = flash_node->cdev.max_brightness;
@@ -2229,6 +2271,15 @@ static int qpnp_flash_led_parse_each_led_dt(struct qpnp_flash_led *led,
 			return rc;
 		}
 	}
+
+	flash_node->strobe_en = of_property_read_bool(node,
+						"qcom,strobe-enabled");
+	flash_node->strobe_torch_en = of_property_read_bool(node,
+						"qcom,strobe-torch-enabled");
+	flash_node->strobe_trig_edge = of_property_read_bool(node,
+						"qcom,strobe-trig-edge");
+	flash_node->strobe_act_high = of_property_read_bool(node,
+						"qcom,strobe-act-high");
 
 	switch (led->peripheral_type) {
 	case FLASH_SUBTYPE_SINGLE:

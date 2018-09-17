@@ -2160,8 +2160,11 @@ static int fastrpc_device_open(struct inode *inode, struct file *filp)
 	fl->apps = me;
 	fl->cid = cid;
 	VERIFY(err, !fastrpc_session_alloc(&me->channel[cid], &session));
-	if (err)
+	if (err) {
+		kfree(fl);
+		fl = NULL;
 		goto bail;
+	}
 	fl->sctx = &me->channel[cid].session[session];
 
 	fl->ssrcount = me->channel[cid].ssrcount;
@@ -2328,6 +2331,10 @@ static long fastrpc_device_ioctl(struct file *file, unsigned int ioctl_num,
 	case FASTRPC_IOCTL_INIT:
 		VERIFY(err, 0 == copy_from_user(&p.init, param,
 						sizeof(p.init)));
+		if (err)
+			goto bail;
+		VERIFY(err, p.init.filelen >= 0 &&
+			p.init.memlen >= 0);
 		if (err)
 			goto bail;
 		VERIFY(err, 0 == fastrpc_init_process(fl, &p.init));

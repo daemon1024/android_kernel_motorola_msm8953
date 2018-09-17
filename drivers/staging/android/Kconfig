@@ -20,9 +20,9 @@ config ANDROID_BINDER_IPC
 	  between said processes.
 
 config ANDROID_BINDER_IPC_32BIT
-	bool
+	bool "Use old (Android 4.4 and earlier) 32-bit binder API"
 	depends on !64BIT && ANDROID_BINDER_IPC
-	default y
+	default n
 	---help---
 	  The Binder API has been changed to support both 32 and 64bit
 	  applications in a mixed environment.
@@ -105,6 +105,14 @@ config ANDROID_LOW_MEMORY_KILLER_AUTODETECT_OOM_ADJ_VALUES
 	  Detect oom_adj values written to
 	  /sys/module/lowmemorykiller/parameters/adj and convert them
 	  to oom_score_adj values.
+
+config ANDROID_LMK_ADJ_RBTREE
+	bool "Use RBTREE for Android Low Memory Killer"
+	depends on ANDROID_LOW_MEMORY_KILLER
+	default N
+	---help---
+	  Use oom_score_adj rbtree to select the best proecss to kill
+	  when system in low memory status.
 
 config SYNC
 	bool "Synchronization framework"
